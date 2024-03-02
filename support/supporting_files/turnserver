@@ -1,0 +1,6 @@
+#
+# TURN Server startup options
+#
+
+EXTRA_OPTIONS=""
+LD_LIBRARY_PATH=/home/workapps/video/libs

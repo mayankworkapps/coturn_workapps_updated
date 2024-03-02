@@ -130,6 +130,10 @@ static int refresh_relay_connection(turn_turnserver *server, ts_ur_super_session
                                     uint64_t in_reservation_token, uint64_t *out_reservation_token, int *err_code,
                                     int family);
 
+static void send_health_check(ioa_socket_handle s);
+
+static int is_health_check(const char *s);
+
 static int write_client_connection(turn_turnserver *server, ts_ur_super_session *ss, ioa_network_buffer_handle nbh,
                                    int ttl, int tos);
 
@@ -4393,13 +4397,30 @@ static int read_client_connection(turn_turnserver *server, ts_ur_super_session *
   uint16_t chnum = 0;
   uint32_t old_stun_cookie = 0;
 
+  uint8_t health_check = 0;
   size_t blen = ioa_network_buffer_get_size(in_buffer->nbh);
   size_t orig_blen = blen;
   SOCKET_TYPE st = get_ioa_socket_type(ss->client_socket);
   SOCKET_APP_TYPE sat = get_ioa_socket_app_type(ss->client_socket);
   int is_padding_mandatory = is_stream_socket(st);
 
-  if (sat == HTTP_CLIENT_SOCKET) {
+  /* Just send the response if it is health check and then reset the previous state */
+  if(sat == CLIENT_SOCKET && st == TLS_SOCKET){
+  	SOCKET_APP_TYPE old_type = ss->client_socket->sat;
+  	set_ioa_socket_app_type(ss->client_socket,HTTPS_CLIENT_SOCKET);
+  	if(is_http((char*)ioa_network_buffer_data(in_buffer->nbh),
+  		ioa_network_buffer_get_size(in_buffer->nbh))){
+  		if(is_health_check((char*)ioa_network_buffer_data(in_buffer->nbh))){
+  			send_health_check(ss->client_socket);
+  			health_check = 1;
+  		}
+  	}
+  	set_ioa_socket_app_type(ss->client_socket,old_type);
+  }
+  if(health_check){
+  	  //it was just a healthcheck call, no need further checks
+  }
+  else if (sat == HTTP_CLIENT_SOCKET) {
 
     if (server->verbose) {
       TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "%s: HTTP connection input: %s\n", __FUNCTION__,
@@ -4547,6 +4568,33 @@ static int read_client_connection(turn_turnserver *server, ts_ur_super_session *
 
   FUNCEND;
   return -1;
+}
+
+static void send_health_check(ioa_socket_handle s)
+{
+  if(s && !ioa_socket_tobeclosed(s)) {
+  	SOCKET_APP_TYPE sat = get_ioa_socket_app_type(s);
+  	if((sat == HTTP_CLIENT_SOCKET) || (sat == HTTPS_CLIENT_SOCKET)) {
+  		ioa_network_buffer_handle nbh_http = ioa_network_buffer_allocate(s->e);
+  		size_t len_http = ioa_network_buffer_get_size(nbh_http);
+  		uint8_t *data = ioa_network_buffer_data(nbh_http);
+  		char data_http[1025];
+  		char content_http[1025];
+  		const char* title = "Coturn-Health-Check";
+  		snprintf(content_http,sizeof(content_http)-1,"<!DOCTYPE html>\r\n<html>\r\n  <head>\r\n    <title>%s</title>\r\n  </head>\r\n  <body>\r\n    <b>%s</b> <br> <b><i>OK</i></b>\r\n  </body>\r\n</html>\r\n",title,title);
+		snprintf(data_http,sizeof(data_http)-1,"HTTP/1.0 200 OK\r\nContent-Type: text/html; charset=UTF-8\r\nContent-Length: %d\r\nStrict-Transport-Security: max-age=16070400; includeSubDomains\r\nX-XSS-Protection: 1; mode=block\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: deny\r\nContent-Security-Policy: default-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self'; style-src 'self'; font-src 'self'; object-src 'self'; frame-src 'self' ; media-src 'self'\r\n\r\n%.906s",(int)strlen(content_http),content_http);
+		len_http = strlen(data_http);
+  		bcopy(data_http,data,len_http);
+  		ioa_network_buffer_set_size(nbh_http,len_http);
+  		send_data_from_ioa_socket_nbh(s, NULL, nbh_http, TTL_IGNORE, TOS_IGNORE,NULL);
+  	}
+  }
+}
+
+static int is_health_check(const char *s) {
+	if(strstr(s,"GET /healthcheck")==s)
+		return 1;
+	return 0;
 }
 
 static int attach_socket_to_session(turn_turnserver *server, ioa_socket_handle s, ts_ur_super_session *ss) {
