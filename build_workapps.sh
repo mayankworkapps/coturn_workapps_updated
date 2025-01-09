@@ -1,21 +1,23 @@
 set -x
 #!/bin/bash
 
+version=$(cat rpm/turnserver.spec | grep Version | awk '{print $2}')
 rm -rf ~/rpmbuild
-cd support
-cd -
-cd rpm
+pushd support
+popd
+pushd rpm
 ./CentOS7.pre.build.sh
 ./build.sh
-cd -
-cp -f support/supporting_libs.tar.gz ~/rpmbuild/RPMS/x86_64/turnserver-4.6.2
-cp -rf support/supporting_files ~/rpmbuild/RPMS/x86_64/turnserver-4.6.2
-cd ~/rpmbuild/RPMS/x86_64
-mv turnserver-4.6.2/supporting_files/install.sh turnserver-4.6.2/install.sh
-mv turnserver-4.6.2/supporting_files/uninstall.turnserver.sh turnserver-4.6.2/uninstall.turnserver.sh
-os=$(./get_os_info.sh)
-rm -f turnserver-4.6.2-$(os)-x86_64.tar.gz
-tar -czvf turnserver-4.6.2-$(os)-x86_64.tar.gz turnserver-4.5.2
-cd -
-mv ~/rpmbuild/RPMS/x86_64/turnserver-4.6.2-$(os)-x86_64.tar.gz workapps_output
+popd
+cp -f support/supporting_libs.tar.gz ~/rpmbuild/RPMS/x86_64/turnserver-${version}
+cp -rf support/supporting_files ~/rpmbuild/RPMS/x86_64/turnserver-${version}
+pushd ~/rpmbuild/RPMS/x86_64
+mv turnserver-${version}/supporting_files/install.sh turnserver-${version}/install.sh
+mv turnserver-${version}/supporting_files/uninstall.turnserver.sh turnserver-${version}/uninstall.turnserver.sh
+os=$(./turnserver-${version}/supporting_files/get_os_info.sh)
+rm -f turnserver-${version}-${os}-x86_64.tar.gz
+rm ./turnserver-${version}/supporting_files/get_os_info.sh
+tar -czvf turnserver-${version}-${os}-x86_64.tar.gz turnserver-${version}
+popd
+mv ~/rpmbuild/RPMS/x86_64/turnserver-${version}-${os}-x86_64.tar.gz workapps_output
 echo "build successful"
